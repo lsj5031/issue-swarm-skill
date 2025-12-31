@@ -110,7 +110,7 @@ process_issue() {
 
     # Fetch issue details
     local issue_json
-    issue_json=$(gh issue view "$issue_num" --json title,body 2>>"$log_file")
+    issue_json=$(gh issue view "$issue_num" --json title,body,comments 2>>"$log_file")
     if [[ -z "$issue_json" ]]; then
         echo -e "$tag ❌ Failed to fetch issue" | tee -a "$log_file"
         return 1
@@ -118,8 +118,10 @@ process_issue() {
 
     local title
     local body
+    local comments
     title=$(echo "$issue_json" | jq -r '.title')
     body=$(echo "$issue_json" | jq -r '.body // "No description provided"')
+    comments=$(echo "$issue_json" | jq -r '.comments[]? | "\n--- Comment by " + .author.login + " ---\n" + .body' 2>/dev/null || echo "")
 
     echo -e "$tag Title: $title" | tee -a "$log_file"
 
@@ -148,6 +150,8 @@ process_issue() {
     local prompt="Work on GitHub Issue #$issue_num: $title
 
 $body
+
+$comments
 
 Instructions:
 1. Read the issue carefully and understand what needs to be done
@@ -335,6 +339,34 @@ Instructions:
 
     if [[ "$success" == "true" ]]; then
         echo -e "$tag ✅ Agent completed" | tee -a "$log_file"
+
+        # Check for uncommitted changes and ask agent to fix
+        if [[ -n $(cd "$worktree_path" && git status --porcelain) ]]; then
+            echo -e "$tag ⚠️  Uncommitted changes detected. Asking agent to commit..." | tee -a "$log_file"
+
+            local followup_body
+            followup_body=$(jq -n \
+                --arg text "It seems there are uncommitted changes. Please commit your changes now. If there are pre-commit hook errors, please fix them." \
+                '{
+                    parts: [{type: "text", text: $text}]
+                }')
+
+            local followup_resp
+            local followup_code
+            followup_resp=$(curl -s -w "\n%{http_code}" -X POST "http://127.0.0.1:$port/session/$session_id/message" \
+                -H "Content-Type: application/json" \
+                -d "$followup_body" \
+                --max-time 900)
+
+            followup_code=$(echo "$followup_resp" | tail -1)
+            followup_resp=$(echo "$followup_resp" | sed '$d')
+
+            if [[ "$followup_code" != "200" ]]; then
+                echo -e "$tag Follow-up failed (HTTP $followup_code)" | tee -a "$log_file"
+            else
+                echo -e "$tag Follow-up response received" | tee -a "$log_file"
+            fi
+        fi
 
         # Push if requested
         if [[ "$PUSH" == true ]]; then

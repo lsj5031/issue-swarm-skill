@@ -29,7 +29,7 @@ For each issue number:
 2. **Creates** a git worktree at `.worktrees/issue-<number>/`
 3. **Creates** a branch `issue/<number>`
 4. **Spawns** `opencode run` with the issue context as prompt
-5. **Commits** changes (agent is instructed to commit)
+5. **Commits** changes (agent is instructed to commit; script prompts agent again if it forgets)
 6. **Logs** output to `.worktrees/issue-<number>.log`
 
 All issues run in **parallel** using background jobs.
